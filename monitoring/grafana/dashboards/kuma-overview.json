@@ -1,0 +1,71 @@
+{
+  "uid": "kuma-overview",
+  "title": "Uptime Kuma — overview",
+  "tags": ["kuma", "safeboard"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "refresh": "10s",
+  "time": { "from": "now-30m", "to": "now" },
+  "panels": [
+    {
+      "id": 1, "type": "stat", "title": "MariaDB",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "mysql_up" }],
+      "fieldConfig": { "defaults": {
+        "mappings": [{ "type": "value", "options": {
+          "0": { "text": "DOWN", "color": "red" },
+          "1": { "text": "UP", "color": "green" } } }],
+        "thresholds": { "mode": "absolute", "steps": [
+          { "color": "red", "value": null }, { "color": "green", "value": 1 } ] } } },
+      "options": { "colorMode": "background", "reduceOptions": { "calcs": ["lastNotNull"] } }
+    },
+    {
+      "id": 2, "type": "stat", "title": "Uptime Kuma",
+      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "probe_success{job=\"blackbox-http\"}" }],
+      "fieldConfig": { "defaults": {
+        "mappings": [{ "type": "value", "options": {
+          "0": { "text": "DOWN", "color": "red" },
+          "1": { "text": "UP", "color": "green" } } }],
+        "thresholds": { "mode": "absolute", "steps": [
+          { "color": "red", "value": null }, { "color": "green", "value": 1 } ] } } },
+      "options": { "colorMode": "background", "reduceOptions": { "calcs": ["lastNotNull"] } }
+    },
+    {
+      "id": 3, "type": "timeseries", "title": "Uptime Kuma — HTTP latency",
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "probe_duration_seconds{job=\"blackbox-http\"}", "legendFormat": "latency" }],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+    {
+      "id": 4, "type": "timeseries", "title": "Containers — CPU %",
+      "gridPos": { "x": 0, "y": 5, "w": 12, "h": 9 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A",
+        "expr": "sum by (name) (rate(container_cpu_usage_seconds_total{name=~\".+\"}[1m])) * 100",
+        "legendFormat": "{{name}}" }],
+      "fieldConfig": { "defaults": { "unit": "percent" } }
+    },
+    {
+      "id": 5, "type": "timeseries", "title": "Containers — RAM",
+      "gridPos": { "x": 12, "y": 5, "w": 12, "h": 9 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A",
+        "expr": "sum by (name) (container_memory_working_set_bytes{name=~\".+\"})",
+        "legendFormat": "{{name}}" }],
+      "fieldConfig": { "defaults": { "unit": "bytes" } }
+    },
+    {
+      "id": 6, "type": "timeseries", "title": "Host — CPU % (Docker VM)",
+      "gridPos": { "x": 0, "y": 14, "w": 24, "h": 6 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A",
+        "expr": "100 - avg(rate(node_cpu_seconds_total{mode=\"idle\"}[1m])) * 100",
+        "legendFormat": "host cpu" }],
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 } }
+    }
+  ]
+}

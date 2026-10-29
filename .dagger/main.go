@@ -63,3 +63,30 @@ func (m *KumaMonitoring) DeployMonitoring(
 		WithExec([]string{"docker", "compose", "-f", "monitoring/compose.yml", "ps"}).
 		Stdout(ctx)
 }
+
+// ConfigureGrafana настраивает datasource
+func (m *KumaMonitoring) ConfigureGrafana(
+	ctx context.Context,
+	// +defaultPath="/"
+	// +ignore=[".git", "**/.env", ".dagger"]
+	src *dagger.Directory,
+	// Grafana на хосте, например tcp://localhost:3000
+	grafana *dagger.Service,
+	grafanaPassword *dagger.Secret,
+	// +optional
+	// +default="admin"
+	grafanaUser string,
+) (string, error) {
+	return dag.Container().
+		From("alpine:3.20").
+		WithExec([]string{"apk", "add", "--no-cache", "curl", "jq"}).
+		WithServiceBinding("grafana", grafana).
+		WithDirectory("/src", src).
+		WithWorkdir("/src").
+		WithEnvVariable("GRAFANA_URL", "http://grafana:3000").
+		WithEnvVariable("GRAFANA_USER", grafanaUser).
+		WithSecretVariable("GRAFANA_PASSWORD", grafanaPassword).
+		WithEnvVariable("CACHE_BUSTER", time.Now().String()).
+		WithExec([]string{"sh", "scripts/configure-grafana.sh"}).
+		Stdout(ctx)
+}
