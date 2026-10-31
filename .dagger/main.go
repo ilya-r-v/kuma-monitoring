@@ -90,3 +90,102 @@ func (m *KumaMonitoring) ConfigureGrafana(
 		WithExec([]string{"sh", "scripts/configure-grafana.sh"}).
 		Stdout(ctx)
 }
+
+// toolbox — alpine с curl и jq для работы с HTTP API.
+func toolbox(src *dagger.Directory) *dagger.Container {
+	return dag.Container().
+		From("alpine:3.20").
+		WithExec([]string{"apk", "add", "--no-cache", "curl", "jq"}).
+		WithDirectory("/src", src).
+		WithWorkdir("/src").
+		WithEnvVariable("CACHE_BUSTER", time.Now().String())
+}
+
+// Validate проверяет, что весь контур работает.
+func (m *KumaMonitoring) Validate(
+	ctx context.Context,
+	// +defaultPath="/"
+	// +ignore=[".git", "**/.env", ".dagger"]
+	src *dagger.Directory,
+	prometheus *dagger.Service,
+	grafana *dagger.Service,
+	grafanaPassword *dagger.Secret,
+	// +optional
+	// +default="admin"
+	grafanaUser string,
+) (string, error) {
+	return toolbox(src).
+		WithServiceBinding("prometheus", prometheus).
+		WithServiceBinding("grafana", grafana).
+		WithEnvVariable("PROMETHEUS_URL", "http://prometheus:9090").
+		WithEnvVariable("GRAFANA_URL", "http://grafana:3000").
+		WithEnvVariable("GRAFANA_USER", grafanaUser).
+		WithSecretVariable("GRAFANA_PASSWORD", grafanaPassword).
+		WithExec([]string{"sh", "scripts/validate.sh"}).
+		Stdout(ctx)
+}
+
+// DeployAll разворачивает весь контур и проверяет его.
+func (m *KumaMonitoring) DeployAll(
+	ctx context.Context,
+	// +defaultPath="/"
+	// +ignore=[".git", "**/.env", ".dagger"]
+	src *dagger.Directory,
+	sock *dagger.Socket,
+	prometheus *dagger.Service,
+	grafana *dagger.Service,
+	dbRootPassword *dagger.Secret,
+	dbPassword *dagger.Secret,
+	exporterPassword *dagger.Secret,
+	grafanaPassword *dagger.Secret,
+) (string, error) {
+	out := ""
+
+	s, err := m.DeployApp(ctx, src, sock, dbRootPassword, dbPassword, exporterPassword)
+	if err != nil {
+		return out, err
+	}
+	out += "=== deploy-app ===\n" + s
+
+	s, err = m.DeployMonitoring(ctx, src, sock, grafanaPassword, exporterPassword)
+	if err != nil {
+		return out, err
+	}
+	out += "\n=== deploy-monitoring ===\n" + s
+
+	s, err = m.ConfigureGrafana(ctx, src, grafana, grafanaPassword, "admin")
+	if err != nil {
+		return out, err
+	}
+	out += "\n=== configure-grafana ===\n" + s
+
+	s, err = m.Validate(ctx, src, prometheus, grafana, grafanaPassword, "admin")
+	if err != nil {
+		return out, err
+	}
+	out += "\n=== validate ===\n" + s
+
+	return out, nil
+}
+
+// Chaos роняет контейнер (SIGKILL) и проверяет обнаружение и автовосстановление.
+func (m *KumaMonitoring) Chaos(
+	ctx context.Context,
+	// +defaultPath="/"
+	// +ignore=[".git", "**/.env", ".dagger"]
+	src *dagger.Directory,
+	sock *dagger.Socket,
+	prometheus *dagger.Service,
+	// mariadb или uptime-kuma
+	// +optional
+	// +default="mariadb"
+	target string,
+) (string, error) {
+	return dockerCli(src, sock).
+		WithExec([]string{"apk", "add", "--no-cache", "curl", "jq"}).
+		WithServiceBinding("prometheus", prometheus).
+		WithEnvVariable("PROMETHEUS_URL", "http://prometheus:9090").
+		WithEnvVariable("TARGET", target).
+		WithExec([]string{"sh", "scripts/chaos.sh"}).
+		Stdout(ctx)
+}

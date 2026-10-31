@@ -1,7 +1,7 @@
 {
   "uid": "kuma-overview",
   "title": "Uptime Kuma — overview",
-  "tags": ["kuma", "safeboard"],
+  "tags": ["kuma", "monitoring"],
   "timezone": "browser",
   "schemaVersion": 39,
   "refresh": "10s",
@@ -45,7 +45,7 @@
       "gridPos": { "x": 0, "y": 5, "w": 12, "h": 9 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [{ "refId": "A",
-        "expr": "sum by (name) (rate(container_cpu_usage_seconds_total{name=~\".+\"}[1m])) * 100",
+        "expr": "sum by (name) (rate(container_cpu_usage_seconds_total{container_label_com_docker_compose_project=~\"kuma-app|kuma-monitoring\"}[1m])) * 100",
         "legendFormat": "{{name}}" }],
       "fieldConfig": { "defaults": { "unit": "percent" } }
     },
@@ -54,7 +54,7 @@
       "gridPos": { "x": 12, "y": 5, "w": 12, "h": 9 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [{ "refId": "A",
-        "expr": "sum by (name) (container_memory_working_set_bytes{name=~\".+\"})",
+        "expr": "sum by (name) (container_memory_working_set_bytes{container_label_com_docker_compose_project=~\"kuma-app|kuma-monitoring\"})",
         "legendFormat": "{{name}}" }],
       "fieldConfig": { "defaults": { "unit": "bytes" } }
     },
@@ -66,6 +66,25 @@
         "expr": "100 - avg(rate(node_cpu_seconds_total{mode=\"idle\"}[1m])) * 100",
         "legendFormat": "host cpu" }],
       "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 } }
+    },
+    {
+      "id": 7, "type": "stat", "title": "Container restarts (last 1h)",
+      "gridPos": { "x": 0, "y": 20, "w": 12, "h": 6 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A",
+        "expr": "count by (name) (count by (name, container_label_restartcount) (last_over_time(container_start_time_seconds{container_label_com_docker_compose_project=~\"kuma-app|kuma-monitoring\"}[1h]))) - 1",
+        "legendFormat": "{{name}}" }],
+      "fieldConfig": { "defaults": {
+        "thresholds": { "mode": "absolute", "steps": [
+          { "color": "green", "value": null }, { "color": "orange", "value": 1 } ] } } },
+      "options": { "colorMode": "background", "reduceOptions": { "calcs": ["lastNotNull"] } }
+    },
+    {
+      "id": 8, "type": "timeseries", "title": "MariaDB uptime",
+      "gridPos": { "x": 12, "y": 20, "w": 12, "h": 6 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "mysql_global_status_uptime", "legendFormat": "uptime" }],
+      "fieldConfig": { "defaults": { "unit": "s" } }
     }
   ]
 }
