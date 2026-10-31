@@ -1,23 +1,71 @@
 name: kuma-app
 
+x-galera: &galera
+  build: ./galera
+  image: kuma-galera:local
+  restart: unless-stopped
+  healthcheck:
+    # healthy = нода в состоянии Synced (wsrep_local_state = 4)
+    test:
+      - CMD-SHELL
+      - >-
+        mariadb -uroot -p"$$MARIADB_ROOT_PASSWORD" -N -s
+        -e "SHOW GLOBAL STATUS LIKE 'wsrep_local_state'" | awk '{print $$2}' | grep -qx 4
+    interval: 10s
+    timeout: 5s
+    retries: 30
+    start_period: 60s
+  networks: [kuma-net]
+
+x-galera-env: &galera-env
+  MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+  MARIADB_DATABASE: kuma
+  MARIADB_USER: kuma
+  MARIADB_PASSWORD: ${DB_PASSWORD}
+  SST_PASSWORD: ${SST_PASSWORD}
+
 services:
-  mariadb:
-    image: mariadb:11.4
-    container_name: mariadb
-    restart: unless-stopped
+  galera-1:
+    <<: *galera
+    container_name: galera-1
+    hostname: galera-1
     environment:
-      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
-      MARIADB_DATABASE: kuma
-      MARIADB_USER: kuma
-      MARIADB_PASSWORD: ${DB_PASSWORD}
+      <<: *galera-env
+      GALERA_BOOTSTRAP: "1"
     volumes:
-      - mariadb-data:/var/lib/mysql
-    healthcheck:
-      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
+      - galera-1-data:/var/lib/mysql
+
+  galera-2:
+    <<: *galera
+    container_name: galera-2
+    hostname: galera-2
+    environment: *galera-env
+    volumes:
+      - galera-2-data:/var/lib/mysql
+    depends_on:
+      galera-1:
+        condition: service_healthy
+
+  galera-3:
+    <<: *galera
+    container_name: galera-3
+    hostname: galera-3
+    environment: *galera-env
+    volumes:
+      - galera-3-data:/var/lib/mysql
+    depends_on:
+      galera-2:
+        condition: service_healthy
+
+  haproxy:
+    build: ./haproxy
+    container_name: haproxy
+    restart: unless-stopped
+    ports:
+      - "8404:8404"
+    depends_on:
+      galera-1:
+        condition: service_healthy
     networks: [kuma-net]
 
   uptime-kuma:
@@ -25,11 +73,13 @@ services:
     container_name: uptime-kuma
     restart: unless-stopped
     depends_on:
-      mariadb:
+      haproxy:
+        condition: service_started
+      galera-3:
         condition: service_healthy
     environment:
       UPTIME_KUMA_DB_TYPE: mariadb
-      UPTIME_KUMA_DB_HOSTNAME: mariadb
+      UPTIME_KUMA_DB_HOSTNAME: haproxy
       UPTIME_KUMA_DB_PORT: "3306"
       UPTIME_KUMA_DB_NAME: kuma
       UPTIME_KUMA_DB_USERNAME: kuma
@@ -39,7 +89,9 @@ services:
     networks: [kuma-net]
 
 volumes:
-  mariadb-data:
+  galera-1-data:
+  galera-2-data:
+  galera-3-data:
 
 networks:
   kuma-net:

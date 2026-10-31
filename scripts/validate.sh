@@ -1,5 +1,5 @@
 #!/bin/sh
-# Проверяет весь контур: таргеты Prometheus, MariaDB, Uptime Kuma, cAdvisor, Grafana.
+# Проверяет весь контур: таргеты Prometheus, кластер Galera, HAProxy, Uptime Kuma, cAdvisor, Grafana.
 set -u
 
 PROM="$PROMETHEUS_URL"
@@ -23,11 +23,15 @@ check() {
   echo "FAIL  $1 (got: $got, want: $3)"; FAILED=1
 }
 
-check "prometheus: 5 targets"         'count(up)' 5
-check "prometheus: no targets down"   'count(up == 0) or vector(0)' 0
-check "mariadb: mysql_up"             'mysql_up' 1
-check "uptime-kuma: http probe"       'probe_success{job="blackbox-http"}' 1
-check "cadvisor: stack containers"    'count(container_memory_working_set_bytes{container_label_com_docker_compose_project="kuma-app"}) > bool 0' 1
+# prometheus, node, cadvisor, 3 x mysqld, haproxy, blackbox
+check "prometheus: 8 targets"            'count(up)' 8
+check "prometheus: no targets down"      'count(up == 0) or vector(0)' 0
+check "galera: 3 nodes up"               'count(mysql_up == 1)' 3
+check "galera: cluster size 3 on all"    'min(mysql_global_status_wsrep_cluster_size)' 3
+check "galera: all nodes synced"         'count(mysql_global_status_wsrep_local_state == 4)' 3
+check "haproxy: active galera server"    'haproxy_backend_active_servers{proxy="galera"}' 1
+check "uptime-kuma: http probe"          'probe_success{job="blackbox-http"}' 1
+check "cadvisor: stack containers"       'count(container_memory_working_set_bytes{container_label_com_docker_compose_project="kuma-app"}) > bool 0' 1
 
 if curl -fs -u "$AUTH" "$API/datasources/uid/prometheus/health" | jq -e '.status == "OK"' >/dev/null; then
   echo "OK    grafana: datasource prometheus"

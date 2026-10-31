@@ -15,10 +15,22 @@ scrape_configs:
     static_configs:
       - targets: ["cadvisor:8080"]
 
+  # 5s — чтобы короткие падения БД успевали попасть в метрики
   - job_name: mysqld
     scrape_interval: 5s
     static_configs:
-      - targets: ["mysqld-exporter:9104"]
+      - targets: ["mysqld-exporter-1:9104"]
+        labels: { node: galera-1 }
+      - targets: ["mysqld-exporter-2:9104"]
+        labels: { node: galera-2 }
+      - targets: ["mysqld-exporter-3:9104"]
+        labels: { node: galera-3 }
+
+  # встроенный Prometheus-экспортер HAProxy
+  - job_name: haproxy
+    scrape_interval: 5s
+    static_configs:
+      - targets: ["haproxy:8404"]
 
   - job_name: blackbox-http
     scrape_interval: 5s

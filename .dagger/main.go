@@ -23,7 +23,7 @@ func dockerCli(src *dagger.Directory, sock *dagger.Socket) *dagger.Container {
 		WithEnvVariable("CACHE_BUSTER", time.Now().String())
 }
 
-// DeployApp разворачивает MariaDB + Uptime Kuma.
+// DeployApp разворачивает слой приложения: Galera-кластер MariaDB (3 ноды) + HAProxy + Uptime Kuma.
 func (m *KumaMonitoring) DeployApp(
 	ctx context.Context,
 	// +defaultPath="/"
@@ -33,19 +33,25 @@ func (m *KumaMonitoring) DeployApp(
 	dbRootPassword *dagger.Secret,
 	dbPassword *dagger.Secret,
 	exporterPassword *dagger.Secret,
+	// пароль пользователя для SST (передача данных новой ноде Galera)
+	sstPassword *dagger.Secret,
 ) (string, error) {
 	return dockerCli(src, sock).
 		WithSecretVariable("DB_ROOT_PASSWORD", dbRootPassword).
 		WithSecretVariable("DB_PASSWORD", dbPassword).
 		WithSecretVariable("EXP_PW", exporterPassword).
+		WithSecretVariable("SST_PASSWORD", sstPassword).
+		// fail fast: с пустым паролем compose пересоздал бы контейнеры с неверным окружением
+		WithExec([]string{"sh", "-c",
+			`test -n "$DB_ROOT_PASSWORD" && test -n "$DB_PASSWORD" && test -n "$EXP_PW" && test -n "$SST_PASSWORD" || { echo "ERROR: empty password secret"; exit 1; }`}).
 		WithExec([]string{"sh", "-c", ensureNetwork}).
-		WithExec([]string{"docker", "compose", "-f", "app/compose.yml", "up", "-d", "--wait"}).
+		WithExec([]string{"docker", "compose", "-f", "app/compose.yml", "up", "-d", "--build", "--wait", "--remove-orphans"}).
 		WithExec([]string{"sh", "scripts/create-exporter-user.sh"}).
 		WithExec([]string{"docker", "compose", "-f", "app/compose.yml", "ps"}).
 		Stdout(ctx)
 }
 
-// DeployMonitoring разворачивает Prometheus, Grafana и экспортеры.
+// DeployMonitoring разворачивает слой мониторинга: Prometheus, Grafana и экспортеры.
 func (m *KumaMonitoring) DeployMonitoring(
 	ctx context.Context,
 	// +defaultPath="/"
@@ -58,13 +64,15 @@ func (m *KumaMonitoring) DeployMonitoring(
 	return dockerCli(src, sock).
 		WithSecretVariable("GRAFANA_ADMIN_PASSWORD", grafanaPassword).
 		WithSecretVariable("EXPORTER_DB_PASSWORD", exporterPassword).
+		WithExec([]string{"sh", "-c",
+			`test -n "$GRAFANA_ADMIN_PASSWORD" && test -n "$EXPORTER_DB_PASSWORD" || { echo "ERROR: empty password secret"; exit 1; }`}).
 		WithExec([]string{"sh", "-c", ensureNetwork}).
-		WithExec([]string{"docker", "compose", "-f", "monitoring/compose.yml", "up", "-d", "--build", "--wait"}).
+		WithExec([]string{"docker", "compose", "-f", "monitoring/compose.yml", "up", "-d", "--build", "--wait", "--remove-orphans"}).
 		WithExec([]string{"docker", "compose", "-f", "monitoring/compose.yml", "ps"}).
 		Stdout(ctx)
 }
 
-// ConfigureGrafana настраивает datasource
+// ConfigureGrafana настраивает datasource и дашборды через HTTP API Grafana (идемпотентно).
 func (m *KumaMonitoring) ConfigureGrafana(
 	ctx context.Context,
 	// +defaultPath="/"
@@ -138,10 +146,11 @@ func (m *KumaMonitoring) DeployAll(
 	dbPassword *dagger.Secret,
 	exporterPassword *dagger.Secret,
 	grafanaPassword *dagger.Secret,
+	sstPassword *dagger.Secret,
 ) (string, error) {
 	out := ""
 
-	s, err := m.DeployApp(ctx, src, sock, dbRootPassword, dbPassword, exporterPassword)
+	s, err := m.DeployApp(ctx, src, sock, dbRootPassword, dbPassword, exporterPassword, sstPassword)
 	if err != nil {
 		return out, err
 	}
@@ -176,9 +185,9 @@ func (m *KumaMonitoring) Chaos(
 	src *dagger.Directory,
 	sock *dagger.Socket,
 	prometheus *dagger.Service,
-	// mariadb или uptime-kuma
+	// galera-1, galera-2, galera-3 или uptime-kuma
 	// +optional
-	// +default="mariadb"
+	// +default="galera-1"
 	target string,
 ) (string, error) {
 	return dockerCli(src, sock).

@@ -1,5 +1,12 @@
 name: kuma-monitoring
 
+x-mysqld-exporter: &mysqld-exporter
+  image: prom/mysqld-exporter:v0.17.2
+  restart: unless-stopped
+  environment:
+    MYSQLD_EXPORTER_PASSWORD: ${EXPORTER_DB_PASSWORD}
+  networks: [kuma-net]
+
 services:
   prometheus:
     build: ./prometheus
@@ -51,16 +58,21 @@ services:
       - /sys:/host/sys:ro
     networks: [kuma-net]
 
-  mysqld-exporter:
-    image: prom/mysqld-exporter:v0.17.2
-    container_name: mysqld-exporter
-    restart: unless-stopped
-    command:
-      - --mysqld.address=mariadb:3306
-      - --mysqld.username=exporter
-    environment:
-      MYSQLD_EXPORTER_PASSWORD: ${EXPORTER_DB_PASSWORD}
-    networks: [kuma-net]
+  # по одному экспортеру на каждую ноду Galera
+  mysqld-exporter-1:
+    <<: *mysqld-exporter
+    container_name: mysqld-exporter-1
+    command: ["--mysqld.address=galera-1:3306", "--mysqld.username=exporter"]
+
+  mysqld-exporter-2:
+    <<: *mysqld-exporter
+    container_name: mysqld-exporter-2
+    command: ["--mysqld.address=galera-2:3306", "--mysqld.username=exporter"]
+
+  mysqld-exporter-3:
+    <<: *mysqld-exporter
+    container_name: mysqld-exporter-3
+    command: ["--mysqld.address=galera-3:3306", "--mysqld.username=exporter"]
 
   blackbox-exporter:
     build: ./blackbox
